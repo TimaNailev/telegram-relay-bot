@@ -5,7 +5,6 @@ import telebot
 from telebot import types
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime
 
 # --- 🔧 Настройки через Variables Railway ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")               # Твой токен бота
@@ -24,6 +23,10 @@ sheet = client.open_by_key(SPREADSHEET_ID).sheet1
 
 # --- 🧾 Логирование пользователей и сообщений ---
 def log_user(chat_id, username, text):
+    # если username пустой, подставляем chat_id
+    if not username:
+        username = f"user_{chat_id}"
+
     all_records = sheet.get_all_records()
     for i, row in enumerate(all_records, start=2):
         if str(row['chat_id']) == str(chat_id):
@@ -36,21 +39,22 @@ def log_user(chat_id, username, text):
 @bot.message_handler(func=lambda m: True)
 def handle_all_messages(message):
     if message.from_user.id == ADMIN_ID:
-        # сообщения админа обрабатываем отдельно
         handle_admin_message(message)
     else:
         log_user(message.chat.id, message.from_user.username, message.text)
-        bot.send_message(ADMIN_ID, f"Новое сообщение от @{message.from_user.username} ({message.chat.id}):\n{message.text}")
+        bot.send_message(ADMIN_ID, f"Новое сообщение от @{message.from_user.username or message.chat.id} ({message.chat.id}):\n{message.text}")
 
 # --- 🟢 Админский функционал ---
-active_chats = {}  # admin_id: selected user chat_id
+active_chats = {}  # admin_id: выбранный chat_id
 
 # Список пользователей кнопками
 def send_user_list(admin_id):
     all_records = sheet.get_all_records()
     keyboard = types.InlineKeyboardMarkup()
     for row in all_records:
-        btn = types.InlineKeyboardButton(text=row['username'], callback_data=f"user:{row['chat_id']}")
+        # если username пустой, подставляем chat_id
+        btn_text = row['username'] if row['username'] else f"user_{row['chat_id']}"
+        btn = types.InlineKeyboardButton(text=btn_text, callback_data=f"user:{row['chat_id']}")
         keyboard.add(btn)
     bot.send_message(admin_id, "Выберите пользователя:", reply_markup=keyboard)
 
@@ -70,7 +74,7 @@ def handle_admin_message(message):
     if chat_id:
         bot.send_message(chat_id, message.text)
         bot.send_message(message.from_user.id, f"✅ Ответ отправлен пользователю {chat_id}")
-        # Можно логировать в таблицу
+        # логируем в Google Sheets
         all_records = sheet.get_all_records()
         for i, row in enumerate(all_records, start=2):
             if str(row['chat_id']) == str(chat_id):
