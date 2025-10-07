@@ -6,7 +6,7 @@ from telebot import types
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- 🔧 Настройки через Variables Railway ---
+# --- Настройки через Variables Railway ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")               # Твой токен бота
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")     # ID таблицы Google Sheets
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")  # JSON сервисного аккаунта
@@ -14,16 +14,15 @@ ADMIN_ID = int(os.getenv("ADMIN_ID"))            # Твой Telegram ID для �
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# --- 🔐 Google Sheets ---
+# --- Google Sheets ---
 creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
 scope = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open_by_key(SPREADSHEET_ID).sheet1
 
-# --- 🧾 Логирование пользователей и сообщений ---
+# --- Логирование пользователей и сообщений ---
 def log_user(chat_id, username, text):
-    # если username пустой, подставляем chat_id
     if not username:
         username = f"user_{chat_id}"
 
@@ -32,19 +31,30 @@ def log_user(chat_id, username, text):
         if str(row['chat_id']) == str(chat_id):
             sheet.update_cell(i, 3, text)  # last_message
             return
-    # новый пользователь
     sheet.append_row([chat_id, username, text, "", False])
 
-# --- 💬 Получение сообщений от всех пользователей ---
+# --- Получение сообщений от всех пользователей ---
 @bot.message_handler(func=lambda m: True)
 def handle_all_messages(message):
     if message.from_user.id == ADMIN_ID:
         handle_admin_message(message)
     else:
+        # Логируем сообщение
         log_user(message.chat.id, message.from_user.username, message.text)
-        bot.send_message(ADMIN_ID, f"Новое сообщение от @{message.from_user.username or message.chat.id} ({message.chat.id}):\n{message.text}")
 
-# --- 🟢 Админский функционал ---
+        # Уведомление админу
+        bot.send_message(
+            ADMIN_ID,
+            f"Новое сообщение от @{message.from_user.username or message.chat.id} ({message.chat.id}):\n{message.text}"
+        )
+
+        # Авто-ответ пользователю
+        bot.send_message(
+            message.chat.id,
+            "Спасибо за сообщение, Тимур уже получил уведомление и скоро он точно вам ответит ❤️"
+        )
+
+# --- Админский функционал ---
 active_chats = {}  # admin_id: выбранный chat_id
 
 # Список пользователей кнопками
@@ -52,7 +62,6 @@ def send_user_list(admin_id):
     all_records = sheet.get_all_records()
     keyboard = types.InlineKeyboardMarkup()
     for row in all_records:
-        # если username пустой, подставляем chat_id
         btn_text = row['username'] if row['username'] else f"user_{row['chat_id']}"
         btn = types.InlineKeyboardButton(text=btn_text, callback_data=f"user:{row['chat_id']}")
         keyboard.add(btn)
@@ -65,7 +74,7 @@ def select_user(callback):
     active_chats[callback.from_user.id] = chat_id
     bot.send_message(callback.from_user.id, f"Выбран пользователь {chat_id}. Теперь пишите сообщения.")
 
-# --- 📤 Ответ админа выбранному пользователю ---
+# Ответ админа выбранному пользователю
 def handle_admin_message(message):
     if message.text.lower() == "/users":
         send_user_list(message.from_user.id)
@@ -74,7 +83,8 @@ def handle_admin_message(message):
     if chat_id:
         bot.send_message(chat_id, message.text)
         bot.send_message(message.from_user.id, f"✅ Ответ отправлен пользователю {chat_id}")
-        # логируем в Google Sheets
+
+        # Логируем ответ в Google Sheets
         all_records = sheet.get_all_records()
         for i, row in enumerate(all_records, start=2):
             if str(row['chat_id']) == str(chat_id):
@@ -83,7 +93,7 @@ def handle_admin_message(message):
     else:
         bot.send_message(message.from_user.id, "Сначала выберите пользователя командой /users")
 
-# --- 🚀 Запуск бота ---
+# --- Запуск бота ---
 if __name__ == "__main__":
     print("Бот запущен...")
     while True:
